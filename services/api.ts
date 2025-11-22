@@ -4,10 +4,29 @@ import { Commit, FileNode, LogEntry } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? 'http://localhost:4000';
 
+let githubToken: string | null = null;
+
 const client = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000, // 30 seconds - for regular API calls
 });
+
+// Add interceptor to include token in requests
+client.interceptors.request.use((config) => {
+  if (githubToken) {
+    config.headers['X-GitHub-Token'] = githubToken;
+  }
+  return config;
+});
+
+export function setGitHubToken(token: string | null) {
+  githubToken = token;
+  if (token) {
+    console.log('🔑 GitHub token set in API client');
+  } else {
+    console.log('🔑 GitHub token cleared from API client');
+  }
+}
 
 export async function getServerConfig(): Promise<{ port: number; publicUrl: string; timestamp: string }> {
   const response = await client.get<{ port: number; publicUrl: string; timestamp: string }>('/api/config', {
@@ -48,8 +67,14 @@ export async function getUserRepositories(username: string): Promise<Repository[
       `/api/user/${username}/repos`,
       { timeout: 10000 } // 10 seconds
     );
+    const repos = response.data.repos;
+    // Defensive check to ensure repos is an array
+    if (!Array.isArray(repos)) {
+      console.warn('⚠️ getUserRepositories: Expected array but got:', typeof repos, repos);
+      return [];
+    }
     console.log(`✅ Found ${response.data.count} repositories for ${username}`);
-    return response.data.repos;
+    return repos;
   } catch (error) {
     console.error(`❌ Failed to fetch repositories for ${username}:`, error);
     return [];
@@ -115,12 +140,24 @@ export async function canPreviewCommit(repoUrl: string, sha: string): Promise<{
 
 export async function fetchCommits(repoUrl: string): Promise<Commit[]> {
   const response = await client.post<{ commits: Commit[] }>('/api/commits', { repoUrl });
-  return response.data.commits;
+  const commits = response.data.commits;
+  // Defensive check to ensure commits is an array
+  if (!Array.isArray(commits)) {
+    console.warn('⚠️ fetchCommits: Expected array but got:', typeof commits, commits);
+    return [];
+  }
+  return commits;
 }
 
 export async function fetchTree(repoUrl: string, sha: string): Promise<FileNode[]> {
   const response = await client.post<{ tree: FileNode[] }>('/api/tree', { repoUrl, sha });
-  return response.data.tree;
+  const tree = response.data.tree;
+  // Defensive check to ensure tree is an array
+  if (!Array.isArray(tree)) {
+    console.warn('⚠️ fetchTree: Expected array but got:', typeof tree, tree);
+    return [];
+  }
+  return tree;
 }
 
 export async function fetchFileContent(repoUrl: string, sha: string, filePath: string): Promise<string> {

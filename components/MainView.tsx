@@ -37,7 +37,7 @@ const MainView: React.FC<MainViewProps> = ({
         return (
             <section className="flex-1 flex flex-col bg-gray-900 overflow-hidden">
                 <div className="flex-1 flex items-center justify-center text-gray-500">
-                    <p>Select a commit to view its details, browse files, and start a preview.</p>
+                    <p className="text-sm text-center">Select a commit to view its details, browse files, and start a preview.</p>
                 </div>
             </section>
         );

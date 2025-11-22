@@ -154,12 +154,14 @@ const CommitSidebar: React.FC<CommitSidebarProps> = ({ commits, selectedCommit, 
     }, [selectedCommit, previewStatus, onAutoStartPreview, workspaceStatus]);
 
     // Filter commits to only show previewable ones
-    const previewableCommits = commits.filter(commit => {
-        const status = previewStatus[commit.sha];
-        return status?.canPreview ?? true; // Show if still checking
-    });
+    const previewableCommits = Array.isArray(commits) 
+        ? commits.filter(commit => {
+            const status = previewStatus[commit.sha];
+            return status?.canPreview ?? true; // Show if still checking
+        })
+        : [];
 
-    const nonPreviewableCount = commits.length - previewableCommits.length;
+    const nonPreviewableCount = (Array.isArray(commits) ? commits.length : 0) - previewableCommits.length;
 
     // Check if selected commit is ready for auto-preview
     const selectedCommitStatus = selectedCommit ? previewStatus[selectedCommit.sha] : null;

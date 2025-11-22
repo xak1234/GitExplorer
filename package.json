@@ -6,10 +6,18 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:backend": "tsc --outDir dist/server server/index.ts",
     "preview": "vite preview",
     "server": "tsx server/index.ts",
     "dev:full": "concurrently \"npm run server\" \"npm run dev\"",
-    "setup": "node scripts/setup.js"
+    "dev:all": "concurrently \"npm run server\" \"npm run dev\"",
+    "prod": "node dist/server/index.js",
+    "start": "node scripts/start.cjs",
+    "start:dev": "node scripts/start.cjs --dev",
+    "start:prod": "node scripts/start.cjs",
+    "bundle": "npm run build && npm run build:backend",
+    "setup": "node scripts/setup.js",
+    "clean:workspaces": "powershell -ExecutionPolicy Bypass -File scripts/clean-workspaces.ps1"
   },
   "bin": {
     "ghcr": "./cli/index.js"

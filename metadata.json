@@ -1,5 +1,0 @@
-{
-  "name": "GitHub Commit Image Tester",
-  "description": "A web application to connect to a GitHub repository, list its commits, view code, and simulate running the corresponding Docker image for a live test preview.",
-  "requestFramePermissions": []
-}

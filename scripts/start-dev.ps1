@@ -39,24 +39,17 @@ Start-Process pwsh -ArgumentList "-NoExit", "-Command", "npm run dev" -WindowSty
 # Wait a moment for frontend to start
 Start-Sleep -Seconds 3
 
-# Open preview.html in default browser
-Write-Host "🎬 Opening Video Output..." -ForegroundColor Magenta
-$previewPath = Join-Path $PSScriptRoot "preview.html"
-Start-Process $previewPath
-
 Write-Host ""
 Write-Host "✅ Development environment started!" -ForegroundColor Green
 Write-Host ""
 Write-Host "📌 Quick Links:" -ForegroundColor Cyan
 Write-Host "   Frontend: http://localhost:5173" -ForegroundColor White
 Write-Host "   Backend:  http://localhost:4000" -ForegroundColor White
-Write-Host "   Preview:  preview.html (standard, 36px header)" -ForegroundColor White
-Write-Host "   Minimal:  preview-minimal.html (ultra-compact, 24px)" -ForegroundColor White
 Write-Host ""
 Write-Host "💡 Tips:" -ForegroundColor Yellow
 Write-Host "   - Check the separate terminal windows for logs"
-Write-Host "   - The preview.html tab shows your running app"
+Write-Host "   - Open http://localhost:5173 in your browser"
 Write-Host "   - Close terminal windows to stop servers"
-Write-Host "   - Read DEVELOPMENT_SETUP.md for more info"
+Write-Host "   - Read docs/DEVELOPMENT_SETUP.md for more info"
 Write-Host ""
 

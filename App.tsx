@@ -7,7 +7,10 @@ import RepoInput from './components/RepoInput';
 import CommitSidebar from './components/CommitSidebar';
 import MainView from './components/MainView';
 import ControlsSidebar from './components/ControlsSidebar';
+import PATModal from './components/PATModal';
 import { GitHubIcon } from './components/icons/GitHubIcon';
+import { KeyIcon } from './components/icons/KeyIcon';
+import { BinocularsIcon } from './components/icons/BinocularsIcon';
 
 const MAX_HISTORY_LENGTH = 5;
 
@@ -22,7 +25,7 @@ const createWorkspaceState = (): WorkspaceState => ({
 const PRIORITY_FILES = ['README.md', 'readme.md', 'README', 'README.txt', 'index.md', 'index.html'];
 
 const App: React.FC = () => {
-    const [repoUrl, setRepoUrl] = useState<string>('https://github.com/xak1234/Lifty');
+    const [repoUrl, setRepoUrl] = useState<string>('');
     const [commits, setCommits] = useState<Commit[]>([]);
     const [selectedCommit, setSelectedCommit] = useState<Commit | null>(null);
     const [fileTree, setFileTree] = useState<FileNode[]>([]);
@@ -35,6 +38,8 @@ const App: React.FC = () => {
     const [repoHistory, setRepoHistory] = useState<string[]>([]);
     const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(() => createWorkspaceState());
     const [logStream, setLogStream] = useState<EventSource | null>(null);
+    const [isPATModalOpen, setIsPATModalOpen] = useState<boolean>(false);
+    const [pat, setPat] = useState<string>('');
 
     const sessionIdRef = useRef<string | null>(null);
     const hasLaunchedMiniWindow = useRef<boolean>(false);
@@ -67,8 +72,13 @@ const App: React.FC = () => {
             if (storedHistory) {
                 setRepoHistory(JSON.parse(storedHistory));
             }
+            const storedPat = localStorage.getItem('github_pat');
+            if (storedPat) {
+                setPat(storedPat);
+                api.setGitHubToken(storedPat);
+            }
         } catch (e) {
-            console.error('Failed to parse repo history from localStorage', e);
+            console.error('Failed to parse from localStorage', e);
         }
         
         // Test backend connectivity on startup
@@ -80,6 +90,11 @@ const App: React.FC = () => {
         };
         testBackend();
     }, []);
+
+    // Update API token when PAT changes
+    useEffect(() => {
+        api.setGitHubToken(pat || null);
+    }, [pat]);
 
     const updateRepoHistory = useCallback((url: string) => {
         setRepoHistory(prevHistory => {
@@ -366,11 +381,27 @@ const App: React.FC = () => {
     }, []); // Empty dependency array - only runs on mount/unmount
 
     return (
-        <div className="flex flex-col h-screen font-sans bg-gray-900 text-gray-300">
-            <header className="flex items-center justify-between p-3 border-b border-gray-700 shadow-md flex-shrink-0 gap-4">
+        <div 
+            className="flex flex-col h-screen font-sans text-gray-300 overflow-hidden relative"
+            style={{
+                backgroundImage: 'url(/gitimage.png)',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundAttachment: 'fixed',
+                backgroundColor: '#000000'
+            }}
+        >
+            <div 
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                    zIndex: 10
+                }}
+            />
+            <div className="absolute inset-0 flex flex-col overflow-hidden" style={{ zIndex: 20 }}>
+            <header className="flex items-center justify-between p-3 border-b border-gray-700 shadow-md flex-shrink-0 gap-4 relative" style={{ zIndex: 30 }}>
                 <div className="flex items-center space-x-3">
-                    <GitHubIcon className="w-8 h-8 text-blue-accent" />
-                    <h1 className="text-xl font-bold text-gray-200 whitespace-nowrap">GitHub Commit Workspace Runner</h1>
+                    <h1 className="text-xl font-bold text-gray-200 whitespace-nowrap">GitHub Commit Explorer</h1>
                 </div>
                 <div className="flex-1 flex justify-center">
                     <RepoInput
@@ -380,9 +411,22 @@ const App: React.FC = () => {
                         history={repoHistory}
                     />
                 </div>
+                <button
+                    onClick={() => setIsPATModalOpen(true)}
+                    className="flex items-center justify-center p-2 hover:bg-gray-700 rounded transition-colors"
+                    title="Configure GitHub Personal Access Token"
+                >
+                    <KeyIcon className="w-6 h-6 text-gray-300 hover:text-blue-accent" />
+                </button>
             </header>
 
-            <main className="flex flex-1 overflow-hidden">
+            <PATModal
+                isOpen={isPATModalOpen}
+                onClose={() => setIsPATModalOpen(false)}
+                onSave={(newPat) => setPat(newPat)}
+            />
+
+            <main className="flex flex-1 overflow-hidden relative" style={{ zIndex: 20 }}>
                 <CommitSidebar
                     commits={commits}
                     selectedCommit={selectedCommit}
@@ -414,6 +458,7 @@ const App: React.FC = () => {
                     onStop={handleStopWorkspace}
                 />
             </main>
+            </div>
         </div>
     );
 };

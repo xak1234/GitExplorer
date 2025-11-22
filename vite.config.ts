@@ -9,6 +9,10 @@ export default defineConfig(({ mode }) => {
         port: 5173,
         host: 'localhost',
       },
+      build: {
+        outDir: 'dist/public',
+        emptyOutDir: true,
+      },
       plugins: [react()],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),

@@ -64,12 +64,15 @@ const BASE_GITHUB_USER = process.env.BASE_GITHUB_USER ?? 'xak1234';
 const MAX_FILE_SIZE = Number(process.env.MAX_FILE_SIZE ?? 1048576); // 1MB default
 const SESSION_TIMEOUT_MINUTES = Number(process.env.SESSION_TIMEOUT_MINUTES ?? 60);
 
-// Validate required environment variables
+// GitHub token is now optional - can be provided via browser PAT modal
+// If not set, the server will still run but with lower GitHub API rate limits
 if (!GITHUB_TOKEN) {
-  console.error('ERROR: GITHUB_TOKEN environment variable is required for private repository access');
-  console.error('Please set your GitHub Personal Access Token in .env.local file');
-  console.error('Generate one at: https://github.com/settings/tokens');
-  process.exit(1);
+  console.warn('⚠️  WARNING: GITHUB_TOKEN not set in environment');
+  console.warn('   The application will work with lower GitHub API rate limits');
+  console.warn('   For better experience, either:');
+  console.warn('   1. Set GITHUB_TOKEN in .env.local, OR');
+  console.warn('   2. Use the key icon in the app to enter your PAT (stored in browser)');
+  console.warn('');
 }
 
 const githubClient = axios.create({
@@ -79,6 +82,12 @@ const githubClient = axios.create({
     ...(GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : {}),
   },
   timeout: 15_000,
+});
+
+// Add interceptor to use token from request headers if provided
+githubClient.interceptors.request.use((config) => {
+  // This will be set by middleware before API calls
+  return config;
 });
 
 // OpenAI client for AI-based analysis
@@ -109,17 +118,26 @@ const sessions = new Map<string, Session>();
 const DEFAULT_FAVICON_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
 
 function sanitizeRelativePath(relativePath: string): string {
-  // First, remove environment variable placeholders from URLs
+  // SECURITY: Remove environment variable placeholders and sanitize path
   let cleaned = relativePath
     .replace(/%PUBLIC_URL%/g, '')
     .replace(/%REACT_APP_[^/]+%/g, '')
-    .replace(/%VITE_[^/]+%/g, '');
+    .replace(/%VITE_[^/]+%/g, '')
+    .replace(/[<>"|?*\x00-\x1f]/g, ''); // Remove invalid filename characters
 
-  return path
+  // Normalize and prevent directory traversal
+  const normalized = path
     .normalize(cleaned)
     .replace(/^(\.\.(?:\\|\/|$))+/, '')
     .replace(/^\.\/+/, '')
     .replace(/^\/+/, '');
+
+  // Additional security check
+  if (normalized.includes('..') || /[\x00-\x1f\x7f-\x9f]/.test(normalized)) {
+    return '';
+  }
+
+  return normalized;
 }
 
 function applyRelaxedPreviewHeaders(res: Response) {
@@ -215,11 +233,15 @@ async function proxySessionAsset(req: Request, res: Response, session: Session, 
   }
 }
 
-// Security middleware - disable CSP for preview functionality
+// Security middleware - configured for local development with preview functionality
 app.use(helmet({
-  contentSecurityPolicy: false,  // Disable CSP entirely for local development and iframe previews
-  frameguard: false,              // Disable X-Frame-Options header
+  contentSecurityPolicy: false,  // Custom CSP set below for iframe previews
+  frameguard: false,              // Disable X-Frame-Options for iframe previews
   crossOriginEmbedderPolicy: false,
+  hsts: false,                    // Disable HSTS for local development
+  noSniff: true,                  // Prevent MIME type sniffing
+  xssFilter: true,                // Enable XSS filter
+  hidePoweredBy: true,            // Hide X-Powered-By header
 }));
 
 // Explicitly set permissive CSP for all routes to allow favicons, images, and preview content
@@ -271,6 +293,46 @@ app.use(cors({
 
 app.use(express.json({ limit: '2mb' }));
 
+// Middleware to handle GitHub token from browser
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const browserToken = req.headers['x-github-token'] as string | undefined;
+  if (browserToken) {
+    // Update the githubClient with the browser token for this request
+    githubClient.defaults.headers.common['Authorization'] = `Bearer ${browserToken}`;
+  } else if (GITHUB_TOKEN) {
+    // Fall back to environment token
+    githubClient.defaults.headers.common['Authorization'] = `Bearer ${GITHUB_TOKEN}`;
+  } else {
+    // No token available
+    delete githubClient.defaults.headers.common['Authorization'];
+  }
+  next();
+});
+
+// Serve static files from the public folder (for assets like images)
+const publicAssetsPath = path.join(process.cwd(), 'public');
+if (existsSync(publicAssetsPath)) {
+  console.log(`📁 Serving public assets from: ${publicAssetsPath}`);
+  app.use(express.static(publicAssetsPath));
+}
+
+// Serve static files from the built frontend in production
+const publicPath = path.join(process.cwd(), 'dist', 'public');
+if (existsSync(publicPath)) {
+  console.log(`📦 Serving static frontend from: ${publicPath}`);
+  app.use(express.static(publicPath));
+  
+  // Fallback to index.html for SPA routing
+  app.get('/', (req: Request, res: Response) => {
+    const indexPath = path.join(publicPath, 'index.html');
+    if (existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).json({ error: 'Frontend not built. Run "npm run build" first.' });
+    }
+  });
+}
+
 // Security validation functions
 async function validateGitHubToken(): Promise<{ valid: boolean; scopes: string[]; user: string }> {
   try {
@@ -316,12 +378,19 @@ function validateFilePath(filePath: string): boolean {
     return false;
   }
 
-  // Prevent path traversal
+  // Prevent path traversal and other malicious patterns
   const normalized = path.normalize(filePath);
   return !normalized.includes('..') &&
     !normalized.startsWith('/') &&
+    !normalized.startsWith('\\') &&
     !normalized.includes('<') &&
     !normalized.includes('>') &&
+    !normalized.includes('|') &&
+    !normalized.includes('&') &&
+    !normalized.includes(';') &&
+    !normalized.includes('$') &&
+    !normalized.includes('`') &&
+    !/[\x00-\x1f\x7f-\x9f]/.test(normalized) && // No control characters
     normalized.length < 1000; // Reasonable path length limit
 }
 
@@ -383,18 +452,25 @@ async function ensureDirectory(dirPath: string) {
 }
 
 function parseRepoUrl(input: string): { owner: string; repo: string } {
-  const trimmed = input.trim();
-  const sshMatch = trimmed.match(/^git@github\.com:([^/]+)\/([^#]+)(?:#.*)?$/i);
+  // SECURITY: Sanitize and validate repository URL input
+  const trimmed = input.trim().substring(0, 500); // Limit length
+  
+  // Remove dangerous characters
+  if (/[<>"|;$`\\]/.test(trimmed)) {
+    throw new Error('Invalid characters in repository URL');
+  }
+
+  const sshMatch = trimmed.match(/^git@github\.com:([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)(?:#.*)?$/i);
   if (sshMatch) {
     return { owner: sshMatch[1], repo: sshMatch[2].replace(/\.git$/, '') };
   }
 
-  const httpsMatch = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^#]+)(?:#.*)?$/i);
+  const httpsMatch = trimmed.match(/^https?:\/\/github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)(?:#.*)?$/i);
   if (httpsMatch) {
     return { owner: httpsMatch[1], repo: httpsMatch[2].replace(/\.git$/, '') };
   }
 
-  const shortMatch = trimmed.match(/^([^/]+)\/([^/]+)$/);
+  const shortMatch = trimmed.match(/^([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)$/);
   if (shortMatch) {
     return { owner: shortMatch[1], repo: shortMatch[2].replace(/\.git$/, '') };
   }
@@ -473,8 +549,9 @@ async function ensureRepository(owner: string, repo: string): Promise<string> {
         await git.clone(cloneUrl, repoPath);
         console.log(`✅ Repository ${owner}/${repo} cloned successfully`);
       } catch (error) {
-        console.error(`❌ Failed to clone repository ${owner}/${repo}:`, error.message);
-        throw error;
+        // SECURITY: Don't log the full error which might contain the token
+        console.error(`❌ Failed to clone repository ${owner}/${repo}:`, error instanceof Error ? error.message.replace(/https:\/\/[^@]+@github\.com/g, 'https://***@github.com') : 'Unknown error');
+        throw new Error(`Failed to clone repository ${owner}/${repo}`);
       }
     } else {
       console.log(`✅ Repository ${owner}/${repo} already exists locally`);
@@ -496,9 +573,10 @@ async function updateRepository(owner: string, repo: string, repoPath: string): 
       await git.fetch(['--all', '--tags']);
       console.log(`✅ Repository ${owner}/${repo} updated successfully`);
     } catch (error) {
-      console.error(`❌ Failed to update repository ${owner}/${repo}:`, error.message);
-      console.error(`   Error details:`, (error as any).stack);
-      throw error;
+      // SECURITY: Sanitize error messages that might contain sensitive paths or tokens
+      const sanitizedMessage = error instanceof Error ? error.message.replace(/https:\/\/[^@]+@github\.com/g, 'https://***@github.com') : 'Unknown error';
+      console.error(`❌ Failed to update repository ${owner}/${repo}:`, sanitizedMessage);
+      throw new Error(`Failed to update repository ${owner}/${repo}`);
     }
   });
 }
@@ -1208,37 +1286,45 @@ app.get('/api/user/:username/repos', async (req: Request, res: Response) => {
     let page = 1;
     let hasMore = true;
 
-    // Use /user/repos if this is the authenticated user, otherwise /users/{username}/repos
-    // /user/repos returns ALL repos (public + private) for the authenticated user
-    // /users/{username}/repos only returns public repos (even with auth)
-    const endpoint = '/user/repos';
+    // Use /users/{username}/repos for any user (public repos only without auth)
+    // This works for any GitHub user and doesn't require authentication for public repos
+    const endpoint = `/users/${username}/repos`;
 
     while (hasMore && page <= 30) { // Limit to 30 pages (3000 repos max)
-      const response = await githubClient.get(endpoint, {
-        params: {
-          per_page: 100,
-          page,
-          sort: 'updated', // Most recently updated first
-          type: 'all', // Include all repos (owner, member, etc.)
-          visibility: 'all', // Include public and private
-          affiliation: 'owner,collaborator,organization_member', // All repos the user has access to
-        },
-      });
+      try {
+        const response = await githubClient.get(endpoint, {
+          params: {
+            per_page: 100,
+            page,
+            sort: 'updated', // Most recently updated first
+            type: 'all', // Include all repos (owner, member, etc.)
+          },
+        });
 
-      if (response.data.length === 0) {
-        hasMore = false;
-      } else {
-        repos.push(...response.data);
-        page++;
-
-        // If we got less than 100, we're on the last page
-        if (response.data.length < 100) {
+        if (response.data.length === 0) {
           hasMore = false;
+        } else {
+          repos.push(...response.data);
+          page++;
+
+          // If we got less than 100, we're on the last page
+          if (response.data.length < 100) {
+            hasMore = false;
+          }
+        }
+      } catch (pageError) {
+        console.error(`⚠️  Error fetching page ${page}:`, pageError);
+        if (axios.isAxiosError(pageError) && pageError.response?.status === 404) {
+          // User not found, stop fetching
+          hasMore = false;
+        } else {
+          // Other error, return what we have so far
+          break;
         }
       }
     }
 
-    console.log(`✅ Found ${repos.length} total repositories (public: ${repos.filter((r: any) => !r.private).length}, private: ${repos.filter((r: any) => r.private).length})`);
+    console.log(`✅ Found ${repos.length} total repositories`);
 
     // Return simplified repo data
     const simplifiedRepos = repos.map((repo: any) => ({
@@ -1883,6 +1969,11 @@ app.post('/api/workspace/run', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'sessionId is required' });
   }
 
+  // SECURITY: Validate session ID format (UUID v4)
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId)) {
+    return res.status(400).json({ error: 'Invalid session ID format' });
+  }
+
   const session = sessions.get(sessionId);
   if (!session) {
     return res.status(404).json({ error: 'Workspace session not found' });
@@ -1986,6 +2077,11 @@ app.post('/api/workspace/run', async (req: Request, res: Response) => {
 });
 
 app.post('/api/workspace/stop', async (req: Request, res: Response) => {
+  // SECURITY: Validate session ID format (UUID v4)
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId)) {
+    return res.status(400).json({ error: 'Invalid session ID format' });
+  }
+
   const { sessionId } = req.body as { sessionId?: string };
   if (!sessionId) {
     return res.status(400).json({ error: 'sessionId is required' });
@@ -2043,6 +2139,13 @@ app.post('/api/workspace/launch-mini', async (req: Request, res: Response) => {
 
 app.get('/api/workspace/:sessionId/logs', (req: Request, res: Response) => {
   const { sessionId } = req.params;
+  
+  // SECURITY: Validate session ID format (UUID v4)
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId)) {
+    res.status(400).json({ error: 'Invalid session ID format' });
+    return;
+  }
+  
   const session = sessions.get(sessionId);
   if (!session) {
     res.status(404).end();
@@ -2137,6 +2240,13 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
     const handled = await proxySessionAsset(req, res, session, safeRelative);
 
     if (!handled) {
+  
+  // SECURITY: Validate session ID format (UUID v4)
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId)) {
+    res.status(400).send('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>Invalid session ID format.</body></html>');
+    return;
+  }
+  
       applyRelaxedPreviewHeaders(res);
       res.status(404).send('File not found');
     }
@@ -2323,6 +2433,14 @@ app.get('/preview/:sessionId/*', async (req: Request, res: Response) => {
 async function validateStartupConfiguration(): Promise<void> {
   console.log('🔍 Validating GitHub token and permissions...');
 
+  // Skip validation if no token is set
+  if (!GITHUB_TOKEN) {
+    console.log('⚠️  No GitHub token set - skipping validation');
+    console.log('💡 Public repositories will work with rate limits');
+    console.log('💡 Use the key icon in the app to add your PAT for private repos');
+    return;
+  }
+
   const tokenValidation = await validateGitHubToken();
   if (!tokenValidation.valid) {
     console.error('❌ GitHub token validation failed');
@@ -2364,9 +2482,9 @@ async function bootstrap() {
       console.log(`📡 Server listening on: ${PUBLIC_SERVER_URL}`);
       console.log(`🌐 Frontend should be available at: http://localhost:5173 (or http://localhost:3000 if using legacy config)`);
       console.log(`\n💡 To access private repositories:`);
-      console.log(`   1. Ensure your GitHub token has 'repo' scope`);
-      console.log(`   2. The token is set in your .env.local file`);
-      console.log(`   3. Use full GitHub URLs: https://github.com/owner/repo`);
+      console.log(`   Option 1: Set GITHUB_TOKEN in .env.local file`);
+      console.log(`   Option 2: Use the 🔑 key icon in the app to enter your PAT (stored in browser)`);
+      console.log(`   Scopes needed: 'repo' for private repositories`);
       console.log(`\n🔒 Security features enabled:`);
       console.log(`   ✓ Input validation and sanitization`);
       console.log(`   ✓ Repository access verification`);

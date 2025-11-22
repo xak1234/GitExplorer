@@ -112,3 +112,28 @@ All data is fetched directly from the GitHub API—no mock data involved.
 - **MIME type errors**: The server automatically sets correct MIME types for common file extensions and fixes issues with development servers that might serve CSS files as HTML.
 - **Asset loading issues**: The server configures environment variables to ensure assets are served from the correct paths and disables problematic development features like hot reloading.
 - **Port conflicts**: The server automatically finds free ports for preview processes and proxies requests through the main server to avoid CORS issues.
+
+## Documentation
+
+Comprehensive documentation is available in the `docs/` directory:
+
+- **Getting Started**
+  - [`DEVELOPMENT_SETUP.md`](docs/DEVELOPMENT_SETUP.md) - Complete development environment setup
+  - [`BUNDLE_AND_STARTUP.md`](docs/BUNDLE_AND_STARTUP.md) - Build and startup guide
+
+- **Features**
+  - [`AI_COMMIT_ANALYSIS.md`](docs/AI_COMMIT_ANALYSIS.md) - AI-powered commit preview scoring
+  - [`TESTING_AI_ANALYSIS.md`](docs/TESTING_AI_ANALYSIS.md) - Testing AI features
+  - [`ADVANCED_PREVIEW_SCORING.md`](docs/ADVANCED_PREVIEW_SCORING.md) - Preview scoring system
+  - [`MULTI_PATTERN_DETECTION.md`](docs/MULTI_PATTERN_DETECTION.md) - Dev server detection system
+  - [`AUTO_LAUNCH_MINI_WINDOW.md`](docs/AUTO_LAUNCH_MINI_WINDOW.md) - Mini window auto-launch
+  - [`MINI_WINDOW_GUIDE.md`](docs/MINI_WINDOW_GUIDE.md) - Using mini preview windows
+
+- **Reference**
+  - [`SECURITY.md`](docs/SECURITY.md) - Security features and best practices
+  - [`SERVER_INFO_GUIDE.md`](docs/SERVER_INFO_GUIDE.md) - Server configuration
+  - [`LOG_PERSISTENCE_GUIDE.md`](docs/LOG_PERSISTENCE_GUIDE.md) - Log management
+  - [`SIMPLIFIED_REPO_INPUT.md`](docs/SIMPLIFIED_REPO_INPUT.md) - Repository input guide
+  - [`UI_ADVANCED_SCORING_GUIDE.md`](docs/UI_ADVANCED_SCORING_GUIDE.md) - UI scoring display
+
+For security information, see [`SECURITY_AUDIT.md`](SECURITY_AUDIT.md) in the root directory.
