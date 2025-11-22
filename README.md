@@ -1,5 +1,7 @@
 
 
+<img src="public/gitimage2.png" alt="GitHub Commit Workspace Runner" width="50%">
+
 # GitHub Commit Workspace Runner
 
 This application connects to any GitHub repository, lists real commits via the GitHub REST API, lets you browse the repository file tree at any commit, and prepares a local workspace so you can inspect that snapshot through a live preview served from your machine.
