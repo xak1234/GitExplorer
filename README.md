@@ -1,6 +1,6 @@
 
 
-<img src="public/gitimage2.png" alt="GitHub Commit Workspace Runner" width="50%">
+<img src="public/gitimage2.png" alt="GitHub Commit Workspace Runner" width="80%">
 
 # GitHub Commit Workspace Runner
 
